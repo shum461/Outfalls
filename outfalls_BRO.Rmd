@@ -1,0 +1,286 @@
+---
+title: "BRO Outfalls v0.0"
+style: center
+author: "Steve Hummel DEQ Tidewater" 
+output: 
+  flexdashboard::flex_dashboard:
+      navbar:
+      - { icon: "fa-question-circle", href: "https://hangouts.google.com/?action=chat&pi=115347244789652424079", align: right }
+self_contained: true
+source_code: embed
+---
+<style>                     
+.navbar {
+  background-color:black;
+  border-color:#EC7063;
+  font-family: Lucida Grande; 
+  font-size: 20px; 
+  font-style: normal; 
+  font-variant: normal;
+  font-weight: 700; 
+  line-height: 26.4px;
+  text-align: center
+
+}
+.navbar-brand {
+color:#EC7063!important;
+border-color:black
+}
+.navbar-author {
+color:#424949;
+font-size: 11px
+}
+.first-box {
+background-color: black;
+color: 		#EC7063;
+border-color:black;
+
+}
+.second-box {
+background-color: #424949;
+color: 	#EC7063;
+border-color:#424949
+}
+.first-col {
+background-color: black;
+color: 	#EC7063;
+border-color:black
+}
+.datatable {
+background-color: #424949;
+color: 	white;
+border-color:black
+}
+{
+.irs-bar,
+.irs-bar-edge,
+.irs-single,
+.irs-grid-pol {
+  background: red;
+  border-color: red;
+}
+</style>  
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+library(leaflet)
+library(crosstalk)
+library(tidyverse)
+#library(FedData)
+library(magrittr)
+library(GISTools)
+#library(gdistance)
+#library(ggmap)
+library(sp)
+library(rgeos)
+library(sp)
+library(rgdal)
+library(mapview)
+library(sf)
+library(leafem)
+library(shiny)
+library(raster)
+library(DT)
+library(shinyjs)
+library(dplyr)
+#library(spdplyr)
+library(htmlTable)
+library(htmltools)
+library(rhandsontable)
+library(inlmisc)
+library(nhdR)
+library(leaflet.extras)
+
+prj <- CRS("+proj=utm +zone=18 +datum=WGS84 +units=ft")
+WGS84 <-CRS("+proj=longlat +datum=WGS84")
+
+dir="C:/Users/vvt97279/Documents/outfalls/BRO"
+
+Files2=list.files(dir,pattern="shp$", full.names = T)
+Files2=Files2[c(-1,-8)]
+
+
+shapes=lapply(Files2,readOGR) 
+shapes2=lapply(shapes,spTransform,CRS("+proj=longlat +datum=WGS84")) 
+
+shapes3=shapes2[c(-7,-8)]
+
+names(shapes3)=(c("reservoirbacteria","reservoirchla",
+            "reservoirDO","reservoirHg",
+            "reservoirpcb","reservoirpH","riverinebacteria","riverinebenthics",
+            "riverineDO","riverineHg","riverinepcb","riverinepH","riverinetemp"))
+
+
+
+
+TMDL=readOGR(dsn="~/outfalls",layer="TMDL")
+TMDL=spTransform(TMDL, WGS84)
+
+BRO=readOGR(dsn="~/outfalls/BRO",layer="BRO")
+BRO=spTransform(BRO, WGS84)
+
+
+inside=raster::intersect(TMDL, BRO)
+
+
+bro_data=read.csv("Imp_Out_TMDL.csv",h=T) %>%
+filter(distance.to.impaired < 500) %>%
+group_by(Facility) %>% arrange(distance.to.impaired)
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+shared <- SharedData$new(bro_data,group="subset")
+shared2 <- SharedData$new(bro_data,group="subset")
+
+
+```
+
+Column 1 { .first-box}
+--------------------------------------------------
+
+
+### Filter outfalls by manipulating parameters {.first-box data-height=200}
+
+```{r}
+
+pal1 <- colorFactor(palette = c("red", "green", "blue","brown","purple","cyan",
+                                "yellow","black"), 
+                   levels = c("bacteria", 
+                              "chla", "DO",
+                              " Hg","pcb","pH",
+                            "benthics","temp"))
+
+pal2 <- colorFactor(palette = c("green", "red", "red","red"), 
+                    levels = c("Benthic-Macroinvertebrate Bioassessments (Streams)", "Total Fecal Coliform", "Escherichia coli","Enterococcus"))
+
+listpal = c("DO", "bacteria", "benthics","pcb","pH","temp","Hg","chla")
+
+
+
+ m=filter_checkbox("tmdlimp", "Staff", shared, ~Permit.Writer, inline = T)
+ m2=filter_select("sites", "Permit.Number", shared, ~Permit.Number)
+ m3=filter_select("fac", "Facility", shared, ~Facility)
+ mm= filter_checkbox("tmdl", "TMDL", shared, ~Local_TMDL, inline = T)
+ mmm=filter_slider("hp", "distance (meters)", shared, ~round(distance.to.impaired,1), width = "80%",step=1)
+
+
+box=bbox(BRO)
+
+
+bscols(
+list(m2,m3),
+list(mm,m)
+)
+ 
+
+
+
+#sd_dt3=SharedData$new(final500[ ,c("Facility","Outfall.No")], group = "subset")
+#d=datatable(sd_dt3, rownames=FALSE, options=list(dom='tp'), width=50)
+#d
+```
+
+### Outfalls 500 meters or less from impaired waters{ .second-box }
+
+```{r}
+
+s=data.frame(unique(bro_data$ASSESSMENT))
+
+opt <- leaflet::markerClusterOptions(showCoverageOnHover = FALSE)
+  
+  b=CreateWebMap()%>%
+  leaflet::setView(lng = -79.72881, lat =37.25088, zoom = 09) %>%
+  #  leaflet::addProviderTiles("Esri.WorldImagery", group="Imagery") %>%
+ #     leaflet::addTiles(attribution = NULL,options = providerTileOptions(noWrap = TRUE), #group="Street") %>%
+          #leaflet::addTiles(urlTemplate = "", attribution = NULL)%>%
+           #setView(lng = -78.39844, lat = 37.82715, zoom=8) %>%
+    #       mapview::addMouseCoordinates(style = "basic") %>%
+           addPolygons(fill = FALSE,data=BRO,group="BRO",color="black") %>%
+           addPolygons(fill = TRUE,data=inside,group="TMDL",label=~POL_NAME,popup=~paste0(PJ_NAME,"<br>","<a href='",inside$PJ_RPT_FIN,"'>","Link to TMDL","</a>"),color="grey")%>%
+           
+    addPolygons(fill = FALSE,
+                data=shapes3[[1]],group="Bacteria",popup=popupTable(shapes3[[1]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="red") %>%
+    addPolylines(fill = F,data=shapes3[[7]],group="Bacteria",popup=popupTable(shapes3[[7]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="red") %>%
+    addPolygons(fill = T,data=shapes3[[2]],group="chla",popup=popupTable(shapes3[[2]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="green") %>%                  
+    addPolygons(fill = T,data=shapes3[[3]],group="DO",popup=popupTable(shapes3[[3]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="blue") %>%  
+    addPolygons(fill = T,data=shapes3[[4]],group="Hg",popup=popupTable(shapes3[[4]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="brown") %>%  
+    addPolygons(fill = T,data=shapes3[[5]],group="pcb",popup=popupTable(shapes3[[5]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="purple") %>%  
+    addPolygons(fill = T,data=shapes3[[6]],group="pH",popup=popupTable(shapes3[[6]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="cyan") %>%  
+    addPolylines(fill = FALSE,data=shapes3[[8]],group="Benthic",popup=popupTable(shapes3[[8]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="yellow") %>%  
+    addPolylines(fill = FALSE,data=shapes3[[9]],group="DO",popup=popupTable(shapes3[[9]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="blue") %>%  
+     addPolylines(fill = FALSE,data=shapes3[[13]],group="temp",popup=popupTable(shapes3[[13]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="blue") %>%
+      addPolylines(fill = FALSE,data=shapes3[[10]],group="Hg",popup=popupTable(shapes3[[10]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="brown") %>%
+      addPolylines(fill = FALSE,data=shapes3[[11]],group="pcb",popup=popupTable(shapes3[[11]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="purple") %>%
+          addPolylines(fill = FALSE,data=shapes3[[12]],group="pH",popup=popupTable(shapes3[[12]],zcol = c("WATER_NAME","IMP_CAUSE",                                                                                         "CATEGORY")),label=~WATER_NAME,color="cyan") %>%
+
+  leaflet::addLayersControl(overlayGroups=c("TMDL","BRO","Bacteria","Benthic","DO","pcb","pH","chla","Hg","temp","snapped Outfalls","Outfalls","clusters"),
+  baseGroups = c("Topo","Imagery","Hydrography"),
+  options = layersControlOptions(collapsed = TRUE)) %>%
+  
+  
+leaflet::addLegend(pal = pal1,values = listpal, 
+                              position = "topright", 
+                              title = "Impairment") %>%
+  
+addCircleMarkers(
+data=shared,radius=6,color="#7FFF00",fillOpacity=0.9,fillColor="blue",weight=2,group="Outfalls",lng=~Longitude.Decimal,lat=~Latitude.Decimal,label=~Facility,popup = paste("<b>",bro_data$Facility,"</b><br>","Ourfall_Number",bro_data$Outfall.No,"<br>","Permit:",bro_data$Permit.Number,"<br>","Meters","<b>",round(bro_data$distance.to.impaired,0),"</b>","<br>","RecWater:",bro_data$Receiving.Stream.x,"<br><b>","Impaired Water:",bro_data$WATER_NAME,"</b><br>","Impairment Loc:","</b>","<br>",bro_data$LOCATION,"<br>","<br>","All Impairments for","<b>",bro_data$ID305B,"</b><br>",bro_data$IMP_CAUSE,"<br>","TMDL Name:",bro_data$PJ_NAME,"<br>","<a href='",bro_data$PJ_RPT_FIN,"'>","Link to TMDL","</a>"))%>%
+
+addCircleMarkers(
+data=bro_data,color="red",fillColor="red",weight=1.5,radius=4,group="snapped Outfalls",lng=~lon,lat=~lat,
+label=~Facility,popup = paste("Facility",bro_data$Facility,"<br>","Ourfall_Number",bro_data$Outfall.No,"<br>","Permit:",bro_data$Permit.Number,"<br>","Meters","<b>",round(bro_data$distance.to.impaired,2),"</b>","<br>","Rec Water:",bro_data$Receiving.Stream.x,"<br>"," Impairment:",bro_data$ASSESSMENT,"<br><b>","Permit Writer","</b>","<br>",bro_data$Permit.Writer,"<br>","<br>","Nearest 305(b) ID",bro_data$ID305B,"<br>",bro_data$WATER_NAME)) 
+    
+   
+
+
+b=addMeasure(b,position = "topleft", primaryLengthUnit = "meters") 
+  
+b=leaflet::showGroup(b,"Outfalls")
+b=leaflet::hideGroup(b,c("TMDL","BRO","Bacteria","Benthic","DO","pcb","pH","chla","Hg","temp","snapped Outfalls"))
+b=leaflet.extras::addFullscreenControl(b,position = "bottomright")
+
+b=inlmisc::AddHomeButton(b,extent(box),position = "topleft")  
+
+b=inlmisc::AddSearchButton(b, group = "Outfalls", zoom = 15,
+                           textPlaceholder = "Search facility names...")
+
+b=inlmisc::AddClusterButton(b, clusterId = "cluster")
+
+b
+
+```
+
+Column 2 { .first-box}
+--------------------------------------------------
+
+### slider{.first-box data-height=80}
+
+```{r}
+mmm
+```
+
+
+### Table {.datatable}
+```{r}
+brchop=bro_data
+
+sd_dt=SharedData$new(brchop,group="subset")
+
+datatable(sd_dt, rownames = FALSE,
+  extensions = 'Buttons',style="bootstrap",
+  class="compact", width="100%",
+  options = list(
+    dom = 'Bfrtip',
+    buttons = 
+      list('copy', 'print', list(
+        extend = 'collection',
+        buttons = c('csv', 'excel', 'pdf'),
+        text = 'Download' )))) %>% formatStyle("LOCATION","white-space"="nowrap")
+
+
+
+```
+

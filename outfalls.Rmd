@@ -1,0 +1,292 @@
+---
+title: "TRO Outfalls v0.3"
+style: center
+author: "Steve Hummel DEQ Tidewater" 
+output: 
+  flexdashboard::flex_dashboard:
+      navbar:
+      - { icon: "fa-question-circle", href: "https://hangouts.google.com/?action=chat&pi=115347244789652424079", align: right }
+self_contained: true
+source_code: embed
+---
+<style>                     
+.navbar {
+  background-color:black;
+  border-color:deepskyblue;
+  font-family: Georgia; 
+  font-size: 20px; 
+  font-style: normal; 
+  font-variant: normal;
+  font-weight: 700; 
+  line-height: 26.4px;
+  text-align: center
+
+}
+.navbar-brand {
+color:deepskyblue!important;
+border-color:black
+}
+.navbar-author {
+color:#424949;
+font-size: 11px
+}
+.first-box {
+background-color: black;
+color: 		deepskyblue;
+border-color:black
+}
+.second-box {
+background-color: #424949;
+color: 	deepskyblue;
+border-color:#424949
+}
+.first-col {
+background-color: black;
+color: 	deepskyblue;
+border-color:black
+}
+.datatable {
+background-color: #424949;
+color: 	white;
+border-color:black
+}
+</style>  
+
+```{r results='hide', message=FALSE, warning=FALSE}
+
+library(leaflet)
+library(crosstalk)
+library(tidyverse)
+#library(FedData)
+library(magrittr)
+library(GISTools)
+#library(gdistance)
+#library(ggmap)
+library(sp)
+library(rgeos)
+library(sp)
+library(rgdal)
+library(mapview)
+library(sf)
+library(leafem)
+library(shiny)
+library(raster)
+library(DT)
+library(shinyjs)
+library(dplyr)
+#library(spdplyr)
+library(htmlTable)
+library(htmltools)
+library(rhandsontable)
+library(inlmisc)
+library(nhdR)
+library(leaflet.extras)
+
+WGS84 <-CRS("+proj=longlat +datum=WGS84") 
+#WGS84 <-CRS("+proj=utm +zone=18 +init=epsg:32147") 
+
+####### sHAPE fILES########################
+
+dir="C:/Users/vvt97279/Documents/outfalls"
+Files=list.files(dir,pattern="shp$", full.names = TRUE)
+
+x <- lapply(Files, shapefile)
+
+y=lapply(x,spTransform,CRS("+proj=longlat +datum=WGS84"))
+
+names(y)=gsub("C:/Users/vvt97279/Documents/outfalls/","",Files)
+
+
+#Remove all shapes other than impairments
+y2=y[-c(3,17,18)]
+
+
+final15=read.csv("New_all_combined2.csv",h=T)
+
+final=read.csv("New_all_combined2.csv",h=T)
+
+#New_All500 %>% filter(distance < 500) %>% mutate(distance=round(distance,2))
+
+final15=final15 %>% filter(distance < 500) %>% mutate(distance=round(distance,0))
+
+final15_sf <- st_as_sf(final15, crs = 4326, coords = c("LON", "LAT"))
+Huc_tro=st_transform(st_read("C:/Users/vvt97279/Documents/outfalls/TidewaterHUC6.shp"),crs=4326)
+Huc_join=st_join(final15_sf,Huc_tro,join=st_within)
+st_geometry(Huc_join) <- NULL
+
+#final_sf <- st_as_sf(final, crs = 4326, coords = c("LON", "LAT"))
+#Huc_join_final=st_join(final_sf,Huc_tro,join=st_within)
+#st_geometry(Huc_join_final) <- NULL
+
+Huc_join$LAT=final15$LAT
+Huc_join$LON=final15$LON
+
+
+blue=Huc_join[,c("Permit.Number","Outfall.No","LON","LAT","Total_Outfalls",
+            "distance","Local_TMDL","Within_ChesBay","WLA","Receiving.Stream","ID305B","Type","Facility","Outfalls_same_Loc","POL_NAME","IMP_NAME","PJ_NAME","VAHU6","HUC12")]
+
+
+red=final15[,c("Permit.Number","Outfall.No","lon","lat","Total_Outfalls",
+            "distance","Local_TMDL","Within_ChesBay","WLA","Receiving.Stream","ID305B","Type","Facility","Outfalls_same_Loc","POL_NAME","IMP_NAME","PJ_NAME")]
+
+
+
+
+shared <- SharedData$new(blue,group="subset")
+
+
+```
+
+Column 1 { .first-box}
+--------------------------------------------------
+
+
+### Filter outfalls by manipulating parameters {.first-box data-height=200}
+
+```{r}
+
+pal1 <- colorFactor(palette = c("blue", "red", "green","orange"), 
+                   levels = c("DO", "Bacteria", "Benthic","pcb"))
+
+pal2 <- colorFactor(palette = c("green", "red", "red","red"), 
+                    levels = c("Benthic-Macroinvertebrate Bioassessments (Streams)", "Total Fecal Coliform", "Escherichia coli","Enterococcus"))
+
+listpal = c("DO", "Bacteria", "Benthic","pcb")
+
+#Bact
+y$Bacteria.shp@data$Type="Bacteria"
+y$Estuarine_Bact.shp@data$Type="Bacteria"
+#DO
+y$Reservoir_DO.shp@data$Type="DO"
+y$DO.shp@data$Type="DO"
+y$Estaurine_DO.shp@data$Type="DO"
+#Benthic
+y$Estaurine_Benthic.shp@data$Type="Benthic"
+y$Benthic.shp@data$Type="Benthic"
+
+#pcb
+y$Estaurine_pcb.shp@data$Type="pcb"
+y$Reservoir_pcb.shp@data$Type="pcb"
+
+
+
+ m=filter_checkbox("chesbay", "ChesBay", shared, ~Within_ChesBay, inline = T)
+ m2=filter_select("sites", "Permit.Number", shared, ~Permit.Number)
+m500=filter_select("huc", "VAHU6", shared, ~VAHU6)
+ m3=filter_select("fac", "Facility", shared, ~Facility)
+ mm= filter_checkbox("tmdl", "TMDL", shared, ~Local_TMDL, inline = T)
+ mmm=filter_slider("hp", "distance (meters)", shared, ~round(distance,1), width = "80%",step=1)
+
+
+box=bbox(y$Tidewater.shp)
+
+
+bscols(
+list(m2,m3),
+list(mm,m),
+m500
+)
+ 
+#sd_dt3=SharedData$new(final500[ ,c("Facility","Outfall.No")], group = "subset")
+#d=datatable(sd_dt3, rownames=FALSE, options=list(dom='tp'), width=50)
+#d
+```
+
+### Outfalls 500 meters or less from impaired waters{ .second-box }
+
+```{r}
+
+opt <- leaflet::markerClusterOptions(showCoverageOnHover = FALSE)
+  
+   b=CreateWebMap()%>%
+  leaflet::setView(lng = -76.4, lat = 37, zoom = 09) %>%
+  #  leaflet::addProviderTiles("Esri.WorldImagery", group="Imagery") %>%
+ #     leaflet::addTiles(attribution = NULL,options = providerTileOptions(noWrap = TRUE), #group="Street") %>%
+          #leaflet::addTiles(urlTemplate = "", attribution = NULL)%>%
+           #setView(lng = -78.39844, lat = 37.82715, zoom=8) %>%
+           mapview::addMouseCoordinates(style = "basic") %>%
+           addPolygons(fill = FALSE,data=y$Tidewater.shp,group="TRO",color="yellow") %>%
+           addPolygons(fill = TRUE,data=y$TMDL.shp,group="TMDL",label=~POL_NAME,popup=~paste0(PJ_NAME,"<br>","<a href='",y$TMDL.shp$PJ_RPT_FIN,"'>","Link to TMDL","</a>"),color=~pal2(IMP_NAME))%>%
+           addPolygons(fill = FALSE,data=y$Reservoir_DO.shp,group="DO",color="blue") %>%
+           addPolygons(fill = TRUE,data=y$Estuarine_Bact.shp,group="Bacteria",color="red") %>%
+           addPolygons(fill = TRUE,data=y$Estaurine_Benthic.shp,group="Benthic",color="green") %>%
+           addPolygons(fill = TRUE,data=y$Estaurine_pcb.shp,group="PCB",color="orange",popup= ~WATER_NAME,label=~ID305B) %>%
+           addPolygons(fill = TRUE,data=y$Reservoir_pcb.shp,group="PCB",color="orange",popup= ~WATER_NAME,label=~ID305B) %>%
+           #addPolygons(fill = FALSE,data=CB,group="ChesBay") %>%
+           addPolylines(data=y$Bacteria.shp,group="Bacteria",color= ~pal1(Type),popup= ~WATER_NAME,label=~ID305B) %>%
+           addPolylines(data=y$Benthic.shp,group="Benthic",color=~pal1(Type),popup= ~WATER_NAME,label=~ID305B) %>%
+           addPolylines(data=y$DO.shp,group="DO",color= ~pal1(Type),popup= ~WATER_NAME,label=~ID305B) %>% 
+
+#addCircleMarkers(data=blue,radius=5,fillOpacity = 0.5, weight = 2, fillColor = "white",group="All_Outfalls") %>%
+             
+addCircleMarkers(
+data=shared,radius=6,color="#7FFF00",fillOpacity=0.9,fillColor="blue",weight=2,group="Outfalls",lng=~LON,lat=~LAT,label=~Facility,popup = paste("Ourfall_Number",final15$Outfall.No,"<br>","Permit:",final15$Permit.Number,"<br>","Meters to nearest impaired:","<b>",round(final15$distance,2),"</b>","<br>","Rec Water:",final15$Receiving.Stream,"<br>","Nearest impaired:",final15$Type,"<br><b>","Impaired Reach Location","</b>","<br>",final15$LOCATION,"<br>","<br>","Nearest 305(b) ID",final15$ID305B,
+                                                                                                                                          "<br>","VAHUC6",blue$VAHU6,"<br>","HUC12",blue$HUC12))%>%
+
+addCircleMarkers(clusterOptions = opt, clusterId = "cluster",
+data=shared,radius=6,color="#7FFF00",fillOpacity=0.9,fillColor="black",weight=2,group="clusters",lng=~LON,lat=~LAT,label=~Facility,popup = paste("Ourfall_Number",final15$Outfall.No,"<br>","Permit:",final15$Permit.Number,"<br>","Meters to nearest impaired:","<b>",round(final15$distance,2),"</b>","<br>","Rec Water:",final15$Receiving.Stream,"<br>","Nearest impaired:",final15$Type,"<br><b>","Impaired Reach Location","</b>","<br>",final15$LOCATION,"<br>","<br>","Nearest 305(b) ID",final15$ID305B,
+                                                                                                                                                 "<br>","VAHUC6",blue$VAHU6,"<br>","HUC12",blue$HUC12))%>%     
+     
+addCircleMarkers(color="red",fillColor="red",data=red,weight=1.5,radius=4,group="snapped Outfalls",lng=~lon,lat=~lat,label=~Facility,popup = paste("Facility",final15$Facility,"<br>","meters",round(final15$distance,2),"<br>",final15$Type,"<br>",final15$WATER_NAME))
+
+ 
+
+b=leaflet::addLayersControl(b,overlayGroups=c("TMDL","TRO","Bacteria","Benthic","DO","PCB","snapped Outfalls","Outfalls","clusters"),
+  baseGroups = c("Topo","Imagery","Hydrography"),
+  options = layersControlOptions(collapsed = TRUE)) 
+  
+  
+b=leaflet::addLegend(b,pal = pal1,values = listpal, 
+                              position = "topright", 
+                              title = "Impairment") 
+  
+b=addMeasure(b,position = "topleft", primaryLengthUnit = "meters") 
+  
+b=leaflet::showGroup(b,"Outfalls")
+b=leaflet::hideGroup(b,c("TMDL","TRO","DO","Benthic","Bacteria","PCB","snapped Outfalls","clusters"))
+b=leaflet.extras::addFullscreenControl(b,position = "bottomright")
+
+b=inlmisc::AddHomeButton(b,extent(box),position = "topleft")  
+
+b=inlmisc::AddSearchButton(b, group = "Outfalls", zoom = 15,
+                           textPlaceholder = "Search facility names...")
+
+b=inlmisc::AddClusterButton(b, clusterId = "cluster")
+
+b
+
+```
+
+Column 2 { .first-box}
+--------------------------------------------------
+
+### slider{.first-box data-height=80}
+
+```{r}
+mmm
+```
+
+
+### Table {.datatable}
+```{r}
+
+sd_dt=SharedData$new(final15[,c("Facility","Permit.Number","Outfall.No","Total_Outfalls",
+            "distance","Local_TMDL","Within_ChesBay","WLA","Receiving.Stream","ID305B","Type","Outfalls_same_Loc","LON","LAT","POL_NAME","IMP_NAME","PJ_NAME")], group = "subset")
+
+datatable(sd_dt, rownames = FALSE,
+  extensions = 'Buttons',style="bootstrap",
+  class="compact", width="100%",
+  options = list(
+    dom = 'Bfrtip',
+    buttons = 
+      list('copy', 'print', list(
+        extend = 'collection',
+        buttons = c('csv', 'excel', 'pdf'),
+        text = 'Download'
+      ))
+    
+  )
+)
+
+```
+
